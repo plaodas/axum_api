@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use crate::{
     error::AppError,
     models::{self, auth::Claims},
-    utils::get_timestamp_8_hours_from_now,
+    utils::{time::get_timestamp_8_hours_from_now, security},
     KEYS,
 };
 
@@ -20,9 +20,9 @@ pub async fn login(
     }
 
     // get the user for the email from database
-    let user = sqlx::query_as::<_,models::auth::User>("
+    let user = sqlx::query_as::<_,models::auth::User>(r#"
 SELECT email, password FROM users WHERE email = $1
-",)
+"#,)
     .bind(&credentials.email)
     .fetch_optional(&pool)
     .await
@@ -33,8 +33,9 @@ SELECT email, password FROM users WHERE email = $1
 
     if let Some(user) = user {
         // if a user  exists :
-
-        if user.password != credentials.password {
+        
+        let verified = security::verify_password_hash( credentials.password, user.password );
+        if let Err(_) = verified {
             Err(AppError::WrongCredential)
         }else{
             let claims = Claims {
@@ -62,9 +63,9 @@ pub async fn register(
     }
 
     // get the user for the email from database
-    let user = sqlx::query_as::<_,models::auth::User>("
+    let user = sqlx::query_as::<_,models::auth::User>(r#"
 SELECT email, password FROM users WHERE email = $1
-",)
+"#,)
     .bind(&credentials.email)
     .fetch_optional(&pool)
     .await
@@ -78,11 +79,19 @@ SELECT email, password FROM users WHERE email = $1
         return  Err(AppError::UserAlreadyExist)
     }
 
+    // hash password
+    let hashed_password = security::compute_password_hash(&credentials.password)
+        .map_err(|_|{
+            AppError::InternalServerError
+        })?;
+
+    tracing::debug!("hashed_password:{}",&hashed_password);
+
     let result = sqlx::query("
 INSERT INTO users(email, password) VALUES($1, $2)
 ")
     .bind(&credentials.email)
-    .bind(&credentials.password)
+    .bind(&hashed_password)
     .execute(&pool)
     .await
     .map_err(|_|{

@@ -7,7 +7,7 @@ pub struct User{
     pub password: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Claims {
     pub email: String,
     pub exp: u64,
