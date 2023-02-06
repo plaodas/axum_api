@@ -1,19 +1,28 @@
-use axum::{Extension, Json, };
+use axum::{
+    Extension, 
+    http::StatusCode,
+    Json, 
+    response::IntoResponse
+};
 use jsonwebtoken::{encode, Header};
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use headers::{HeaderMap, HeaderValue};
 
 use crate::{
     error::AppError,
     models::{self, auth::Claims},
-    utils::{time::get_timestamp_8_hours_from_now, security},
+    utils::{time::timestamp_secs_from_now, password},
     KEYS,
 };
 
+
+// login process
 pub async fn login(
     Json(credentials): Json<models::auth::User>,
     Extension(pool): Extension<PgPool>,
-) -> Result<Json<Value>, AppError>{
+) ->  Result<impl IntoResponse, impl IntoResponse> {
+
     // check if email or password is a blank string
     if credentials.email.is_empty() || credentials.password.is_empty() {
         return Err(AppError::MissingCredential)
@@ -32,19 +41,23 @@ SELECT email, password FROM users WHERE email = $1
     })?;
 
     if let Some(user) = user {
-        // if a user  exists :
+    // if a user  exists :
         
-        let verified = security::verify_password_hash( credentials.password, user.password );
+        let verified = password::verify_password_hash( credentials.password, user.password );
         if let Err(_) = verified {
             Err(AppError::WrongCredential)
         }else{
-            let claims = Claims {
-                email: credentials.email,
-                exp: get_timestamp_8_hours_from_now(),
-            };
-            let token = encode(&Header::default(), &claims, &KEYS.encoding)
-                .map_err(|_|AppError::TokenCreation)?;
-            Ok(Json(json!({"access_token": token, "type":"Bearer"})))
+
+            // create access_tokens
+            let access_token = create_access_token(&credentials.email, 60 * 60 * 8)?;
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                axum::http::header::SET_COOKIE, 
+                HeaderValue::from_str( format!("access_token={}; path=/; SameSite=Strict; HttpOnly", access_token).as_str() ).unwrap()
+            );
+
+            Ok((headers, Json(json!( {"code":StatusCode::OK.as_str() ,"data":access_token}))))
         }
     }else{
         // if a user does not exist
@@ -52,6 +65,20 @@ SELECT email, password FROM users WHERE email = $1
     }
 
 }
+
+// 
+fn create_access_token(email: &String, duration_secs: u64)->Result<String, AppError>{
+    return encode(
+        &Header::default(), 
+        &Claims {
+            email: email.to_owned(),
+            exp: timestamp_secs_from_now(duration_secs),
+        }, 
+        &KEYS.encoding
+    ).map_err(|_|AppError::TokenCreation);
+}
+
+
 
 pub async fn register(
     Json(credentials): Json<models::auth::User>,
@@ -80,7 +107,7 @@ SELECT email, password FROM users WHERE email = $1
     }
 
     // hash password
-    let hashed_password = security::compute_password_hash(&credentials.password)
+    let hashed_password = password::compute_password_hash(&credentials.password)
         .map_err(|_|{
             AppError::InternalServerError
         })?;
@@ -101,7 +128,8 @@ INSERT INTO users(email, password) VALUES($1, $2)
     if result.rows_affected() < 1{
         Err(AppError::InternalServerError)
     }else {
-        Ok(Json(json!({"msg":"registered successfully"})))
+        Ok(Json(json!( {"code":StatusCode::CREATED.as_str() ,"msg":"registered successfully"})))
     }
 
 }
+

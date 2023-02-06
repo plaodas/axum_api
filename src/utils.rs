@@ -1,3 +1,2 @@
 pub mod time;
-pub mod claims;
-pub mod security;
+pub mod password;

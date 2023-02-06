@@ -11,7 +11,9 @@ use tower_http::cors::{Any, CorsLayer};
 use sqlx::postgres::PgPoolOptions;
 use dotenv::dotenv;
 
+
 mod controllers;
+mod extractors;
 mod models;
 mod error;
 mod utils;
@@ -51,6 +53,7 @@ async fn main() {
         .route("/register",post(controllers::auth::register))
         // logged in user only 
         .route("/user_profile",get(controllers::user::user_profile))
+        // .route("/cookies", get(handler))
         .layer(cors)
         .layer(Extension(pool));
 
@@ -63,3 +66,19 @@ async fn main() {
         .expect("failed to start server");
 
 }
+
+// async fn handler(cookies: Cookies) -> impl IntoResponse {
+    // let visited = cookies
+    //     .get("token")
+    //     .and_then(|c| c.value().parse().ok())
+    //     .unwrap_or(0);
+
+    // if visited > 10 {
+    //     cookies.remove(Cookie::new("token", ""));
+    //     "Counter has been reset".into()
+    // } else {
+    //     cookies.add(Cookie::new("token", (visited + 1).to_string()));
+    //     format!("You've been here {} times before", visited)
+    // }
+//     "aaaaa"
+// }
